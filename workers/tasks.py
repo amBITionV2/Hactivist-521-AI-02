@@ -1,25 +1,43 @@
-import time
+# workers/tasks.py (Updated)
 from celery import Celery
+from neo4j import GraphDatabase
+import spacy
 
-# Connect Celery to your local Redis instance
 celery_app = Celery('tasks', broker='redis://localhost:6379/0', backend='redis://localhost:6379/0')
+nlp = spacy.load("en_core_web_sm")
+
+NEO4J_URI = "bolt://localhost:7687"
+NEO4J_AUTH = ("neo4j", "Crime2*graph")# Remember to set your password
+
+def get_neo4j_driver():
+    return GraphDatabase.driver(NEO4J_URI, auth=NEO4J_AUTH)
 
 @celery_app.task
-def process_case_file_task(case_id: int, filename: str):
-    """
-    A dummy task that simulates processing a file.
-    In the future, this is where all the NLP and Neo4j logic will go.
-    """
-    print(f"WORKER: Starting processing for case_id: {case_id} (File: {filename})")
+def process_case_file_task(case_id: int, file_content: str):
+    print(f"WORKER: Starting NLP processing for case_id: {case_id}")
+    doc = nlp(file_content)
+    entities = []
+    for ent in doc.ents:
+        if ent.label_ in ["PERSON", "GPE", "LOC", "ORG", "DATE", "TIME"]:
+            entities.append({"text": ent.text, "label": ent.label_})
     
-    # Simulate a long-running task like NLP analysis
-    time.sleep(10) 
-    
-    # Here you would:
-    # 1. Read the file content from storage.
-    # 2. Perform spaCy entity extraction.
-    # 3. Connect to Neo4j and create nodes/relationships.
-    # 4. Update the case status in PostgreSQL from 'pending' to 'processed'.
+    print(f"WORKER: Found {len(entities)} entities: {entities}")
+
+    if entities:
+        driver = get_neo4j_driver()
+        with driver.session() as session:
+            # Create a single Case node
+            session.run("MERGE (c:Case {case_id: $case_id})", case_id=case_id)
+
+            # For each entity, create the node and link it to the Case node
+            for entity in entities:
+                session.run("""
+                    MERGE (c:Case {case_id: $case_id})
+                    MERGE (e:Entity {name: $name, type: $type})
+                    MERGE (e)-[:BELONGS_TO]->(c)
+                """, case_id=case_id, name=entity['text'], type=entity['label'])
+        driver.close()
+        print(f"WORKER: Successfully wrote and linked {len(entities)} entities to Neo4j for case {case_id}.")
     
     print(f"WORKER: Finished processing for case_id: {case_id}")
-    return {"status": "Complete", "case_id": case_id}
+    return {"status": "Complete", "case_id": case_id, "entities_found": len(entities)}
