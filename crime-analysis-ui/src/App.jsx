@@ -1,7 +1,6 @@
-// src/App.jsx (Final version with Graph)
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import GraphView from './GraphView'; // <-- IMPORT THE NEW COMPONENT
+import Dashboard from './components/Dashboard';
 import './App.css';
 
 function App() {
@@ -21,6 +20,7 @@ function App() {
       setCases(sortedCases);
     } catch (err) {
       setError('Failed to fetch cases. Is the backend server running?');
+      console.error(err);
     } finally {
       setIsLoading(false);
     }
@@ -44,12 +44,19 @@ function App() {
     const formData = new FormData();
     formData.append('file', selectedFile);
     try {
-      await axios.post('http://localhost:8000/upload-case/', formData);
+      // THIS IS THE CORRECTED SECTION
+      await axios.post('http://localhost:8000/upload-case/', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      // END OF CORRECTION
       setSelectedFile(null);
       document.getElementById('file-input').value = null;
       fetchCases();
     } catch (err) {
       setError('File upload failed.');
+      console.error(err);
     } finally {
       setUploading(false);
     }
@@ -68,63 +75,49 @@ function App() {
       setSimulation(response.data.simulation);
     } catch (err) {
       setError('Failed to fetch simulation.');
+      console.error(err);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleBackToList = () => {
-    setSelectedCase(null);
-    setSimulation('');
-    setError('');
-  };
+  if (selectedCase) {
+    return (
+      <Dashboard
+        selectedCase={selectedCase}
+        simulation={simulation}
+        onBack={() => setSelectedCase(null)}
+      />
+    );
+  }
 
   return (
-    <div className="App">
-      <header className="App-header">
-        <h1>Cognitive Crime Analysis System</h1>
-        {selectedCase ? (
-          <div className="case-detail">
-            <button onClick={handleBackToList}>&larr; Back to Dashboard</button>
-            <h2>Details for Case: {selectedCase.filename}</h2>
-            {error && <p className="error">{error}</p>}
+    <div className="w-full min-h-screen bg-gray-900 text-white p-8">
+      <h1 className="text-4xl font-bold text-center mb-2">Cognitive Crime Analysis System</h1>
+      <div className="max-w-3xl mx-auto">
+        <div className="bg-gray-800 p-6 my-8 rounded-lg shadow-lg">
+          <h2 className="text-2xl font-semibold text-teal-400 mb-4">Upload New Case File</h2>
+          <input id="file-input" type="file" onChange={handleFileChange} className="mb-4" />
+          <button onClick={handleUpload} disabled={uploading} className="bg-teal-500 hover:bg-teal-400 text-white font-bold py-2 px-4 rounded">
+            {uploading ? 'Uploading...' : 'Upload'}
+          </button>
+        </div>
 
-            {/* --- ADD THE GRAPHVIEW COMPONENT HERE --- */}
-            <GraphView caseId={selectedCase.id} />
-
-            <h3>AI Generated Simulation</h3>
-            {isLoading && <p>Generating simulation...</p>}
-            {!isLoading && simulation && (
-              <pre className="simulation-text">{simulation}</pre>
-            )}
-          </div>
-        ) : (
-          // ... Dashboard View remains the same ...
-          <>
-            <div className="upload-section">
-              <h2>Upload New Case File</h2>
-              <input id="file-input" type="file" onChange={handleFileChange} />
-              <button onClick={handleUpload} disabled={uploading}>
-                {uploading ? 'Uploading...' : 'Upload'}
-              </button>
-            </div>
-            <h2>Case Dashboard</h2>
-            <button onClick={fetchCases} disabled={isLoading}>
-              {isLoading ? 'Refreshing...' : 'Refresh List'}
-            </button>
-            {error && <p className="error">{error}</p>}
-            <div className="case-list">
-              <ul>
-                {cases.map((caseItem) => (
-                  <li key={caseItem.id} onClick={() => handleCaseSelect(caseItem)} className={caseItem.status === 'complete' ? 'clickable' : ''}>
-                    <strong>File:</strong> {caseItem.filename} | <strong>Status:</strong> {caseItem.status}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </>
-        )}
-      </header>
+        <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
+          <h2 className="text-2xl font-semibold text-teal-400 mb-4">Case Dashboard</h2>
+          <button onClick={fetchCases} disabled={isLoading} className="mb-4 bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded">
+            {isLoading ? 'Refreshing...' : 'Refresh List'}
+          </button>
+          {error && <p className="text-red-500">{error}</p>}
+          <ul className="space-y-2">
+            {cases.map((caseItem) => (
+              <li key={caseItem.id} onClick={() => handleCaseSelect(caseItem)} className={`p-4 rounded ${caseItem.status === 'complete' ? 'cursor-pointer hover:bg-gray-700' : 'opacity-50'}`}>
+                <strong>File:</strong> {caseItem.filename} | <strong>Status:</strong> {caseItem.status}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
     </div>
   );
 }
