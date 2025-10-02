@@ -1,16 +1,13 @@
-from fastapi import FastAPI, Depends
+# Add these imports at the top
+from fastapi import FastAPI, Depends, UploadFile, File
 from sqlalchemy.orm import Session
 from . import models, schemas
 from .database import SessionLocal, engine
-from workers.tasks import process_case_file # <-- IMPORT THE TASK
+from workers.tasks import process_case_file_task # <-- IMPORT THE TASK
 
-# This line tells SQLAlchemy to create the tables defined in models.py
-# It will create the 'cases' table in your 'crime_db' the first time the app runs.
 models.Base.metadata.create_all(bind=engine)
-
 app = FastAPI(title="Cognitive Crime Analysis System API")
 
-# Dependency: Manages database sessions for each request
 def get_db():
     db = SessionLocal()
     try:
@@ -20,9 +17,18 @@ def get_db():
 
 @app.get("/")
 def read_root():
-    """A simple endpoint to check if the API is running."""
     return {"status": "API is running locally"}
 
+# This endpoint is the same as before
+@app.post("/cases/", response_model=schemas.Case)
+def create_case(case: schemas.CaseCreate, db: Session = Depends(get_db)):
+    db_case = models.Case(filename=case.filename)
+    db.add(db_case)
+    db.commit()
+    db.refresh(db_case)
+    return db_case
+
+# --- NEW ENDPOINT ---
 @app.post("/upload-case/")
 def upload_and_process_case(db: Session = Depends(get_db), file: UploadFile = File(...)):
     """

@@ -1,20 +1,25 @@
-from celery import Celery
-import spacy
 import time
+from celery import Celery
 
-app = Celery ('tasks', broker='redis://redis:6379/0', backend='redis://redis:6379/0')
-nlp = spacy.load("en_core_web_sm")
+# Connect Celery to your local Redis instance
+celery_app = Celery('tasks', broker='redis://localhost:6379/0', backend='redis://localhost:6379/0')
 
-@app.task
-def process_case_file(file_content: str, case_id: int):
-    
-    # 1. Perform NLP extraction on file_content
-    doc = nlp(file_content)
-    entities = [(ent.text, ent.label_) for ent in doc.ents]
-
-    # 2. Connect to Neo4j (running in another container)
-    # 3. Write entities to the graph
-    # 4. Connect to PostgreSQL
-    # 5. Update the status of 'case_id' to "Processed"
+@celery_app.task
+def process_case_file_task(case_id: int, filename: str):
+    """
+    A dummy task that simulates processing a file.
+    In the future, this is where all the NLP and Neo4j logic will go.
+    """
     print(f"WORKER: Starting processing for case_id: {case_id} (File: {filename})")
-    return {"case_id": case_id, "status": "Success", "entities_found": len(entities)}
+    
+    # Simulate a long-running task like NLP analysis
+    time.sleep(10) 
+    
+    # Here you would:
+    # 1. Read the file content from storage.
+    # 2. Perform spaCy entity extraction.
+    # 3. Connect to Neo4j and create nodes/relationships.
+    # 4. Update the case status in PostgreSQL from 'pending' to 'processed'.
+    
+    print(f"WORKER: Finished processing for case_id: {case_id}")
+    return {"status": "Complete", "case_id": case_id}
