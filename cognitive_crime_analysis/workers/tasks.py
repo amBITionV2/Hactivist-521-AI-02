@@ -2,6 +2,8 @@
 from celery import Celery
 from neo4j import GraphDatabase
 import spacy
+from app.database import SessionLocal
+from app.models import Case
 
 celery_app = Celery('tasks', broker='redis://localhost:6379/0', backend='redis://localhost:6379/0')
 nlp = spacy.load("en_core_web_sm")
@@ -38,6 +40,16 @@ def process_case_file_task(case_id: int, file_content: str):
                 """, case_id=case_id, name=entity['text'], type=entity['label'])
         driver.close()
         print(f"WORKER: Successfully wrote and linked {len(entities)} entities to Neo4j for case {case_id}.")
+    
+    db = SessionLocal()
+    try:
+        case_to_update = db.query(Case).filter(Case.id == case_id).first()
+        if case_to_update:
+            case_to_update.status = "complete"
+            db.commit()
+            print(f"WORKER: Updated status to 'complete' for case_id: {case_id}")
+    finally:
+        db.close()
     
     print(f"WORKER: Finished processing for case_id: {case_id}")
     return {"status": "Complete", "case_id": case_id, "entities_found": len(entities)}
