@@ -1,46 +1,99 @@
-# workers/tasks.py (Updated)
+# workers/tasks.py (Upgraded)
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+import json
+import requests
 from celery import Celery
 from neo4j import GraphDatabase
-import spacy
-from app.database import SessionLocal
-from app.models import Case
+from dotenv import load_dotenv
 
+# --- App and Environment Setup ---
 celery_app = Celery('tasks', broker='redis://localhost:6379/0', backend='redis://localhost:6379/0')
-nlp = spacy.load("en_core_web_sm")
+load_dotenv()
 
+# --- Neo4j Connection Details ---
 NEO4J_URI = "bolt://localhost:7687"
-NEO4J_AUTH = ("neo4j", "Crime2*graph")# Remember to set your password
+NEO4J_AUTH = ("neo4j", "Crime2*graph") # Remember to set your password
+
+# --- Gemini API Details ---
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
 
 def get_neo4j_driver():
     return GraphDatabase.driver(NEO4J_URI, auth=NEO4J_AUTH)
 
+def extract_graph_from_text(text: str):
+    """Uses Gemini to extract entities and relationships from text."""
+    prompt = f"""
+    Analyze the following crime report text. Extract the key entities (people, places, organizations, dates, times, objects) and the relationships between them.
+    Return the result as a JSON object with two keys: "entities" and "relationships".
+    - "entities" should be a list of objects, each with a "name" and "type".
+    - "relationships" should be a list of objects, each with a "source" (entity name), "target" (entity name), and "type" (the relationship, e.g., WITNESSED_AT, FLED_TOWARDS).
+    - Use uppercase snake_case for relationship types.
+
+    Text: "{text}"
+
+    JSON Output:
+    """
+    
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    headers = {'Content-Type': 'application/json'}
+    
+    response = requests.post(GEMINI_API_URL, headers=headers, data=json.dumps(payload))
+    response.raise_for_status()
+    
+    # Clean up the response to get a valid JSON object
+    response_text = response.json()['candidates'][0]['content']['parts'][0]['text']
+    clean_json_text = response_text.strip().replace('```json', '').replace('```', '')
+    
+    return json.loads(clean_json_text)
+
+
 @celery_app.task
 def process_case_file_task(case_id: int, file_content: str):
-    print(f"WORKER: Starting NLP processing for case_id: {case_id}")
-    doc = nlp(file_content)
-    entities = []
-    for ent in doc.ents:
-        if ent.label_ in ["PERSON", "GPE", "LOC", "ORG", "DATE", "TIME"]:
-            entities.append({"text": ent.text, "label": ent.label_})
+    print(f"WORKER: Starting ADVANCED graph extraction for case_id: {case_id}")
     
-    print(f"WORKER: Found {len(entities)} entities: {entities}")
+    try:
+        # 1. Use Gemini to get structured graph data
+        graph_data = extract_graph_from_text(file_content)
+        entities = graph_data.get("entities", [])
+        relationships = graph_data.get("relationships", [])
+        print(f"WORKER: Extracted {len(entities)} entities and {len(relationships)} relationships.")
 
-    if entities:
-        driver = get_neo4j_driver()
-        with driver.session() as session:
-            # Create a single Case node
-            session.run("MERGE (c:Case {case_id: $case_id})", case_id=case_id)
+        # 2. Write graph to Neo4j
+        if entities or relationships:
+            driver = get_neo4j_driver()
+            with driver.session() as session:
+                # Create a single Case node
+                session.run("MERGE (c:Case {case_id: $case_id})", case_id=case_id)
 
-            # For each entity, create the node and link it to the Case node
-            for entity in entities:
-                session.run("""
-                    MERGE (c:Case {case_id: $case_id})
-                    MERGE (e:Entity {name: $name, type: $type})
-                    MERGE (e)-[:BELONGS_TO]->(c)
-                """, case_id=case_id, name=entity['text'], type=entity['label'])
-        driver.close()
-        print(f"WORKER: Successfully wrote and linked {len(entities)} entities to Neo4j for case {case_id}.")
-    
+                # Create all entity nodes and link them to the Case
+                for entity in entities:
+                    session.run("""
+                        MERGE (c:Case {case_id: $case_id})
+                        MERGE (e:Entity {name: $name, type: $type})
+                        MERGE (e)-[:BELONGS_TO]->(c)
+                    """, case_id=case_id, name=entity['name'], type=entity['type'])
+
+                # Create all relationships between entities
+                for rel in relationships:
+                    session.run("""
+                        MATCH (source:Entity {name: $source_name})
+                        MATCH (target:Entity {name: $target_name})
+                        MERGE (source)-[:""" + rel['type'] + """]->(target)
+                    """, source_name=rel['source'], target_name=rel['target'])
+            driver.close()
+            print(f"WORKER: Successfully wrote smart graph to Neo4j for case {case_id}.")
+
+    except Exception as e:
+        print(f"WORKER: An error occurred during processing for case {case_id}: {e}")
+        # Optionally, update the case status to 'failed' in PostgreSQL
+        return {"status": "Failed", "error": str(e)}
+
+    # Update case status in PostgreSQL to 'complete' (code from before)
+    from app.database import SessionLocal
+    from app.models import Case
     db = SessionLocal()
     try:
         case_to_update = db.query(Case).filter(Case.id == case_id).first()
@@ -50,6 +103,6 @@ def process_case_file_task(case_id: int, file_content: str):
             print(f"WORKER: Updated status to 'complete' for case_id: {case_id}")
     finally:
         db.close()
-    
+
     print(f"WORKER: Finished processing for case_id: {case_id}")
-    return {"status": "Complete", "case_id": case_id, "entities_found": len(entities)}
+    return {"status": "Complete"}

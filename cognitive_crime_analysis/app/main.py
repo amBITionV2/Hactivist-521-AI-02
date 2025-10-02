@@ -133,3 +133,43 @@ def read_cases(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     """
     cases = db.query(models.Case).offset(skip).limit(limit).all()
     return cases
+
+# app/main.py - Add this new endpoint
+
+# ... (all your existing code and imports) ...
+
+@app.get("/cases/{case_id}/graph")
+def get_case_graph(case_id: int):
+    """
+    Retrieves all nodes and relationships for a specific case to be visualized.
+    """
+    nodes = []
+    edges = []
+    driver = GraphDatabase.driver(NEO4J_URI, auth=NEO4J_AUTH)
+    with driver.session() as session:
+        # Query to get all entities belonging to the case
+        result = session.run("""
+            MATCH (e:Entity)-[:BELONGS_TO]->(c:Case {case_id: $case_id})
+            RETURN id(e) AS id, e.name AS label, e.type AS type
+        """, case_id=case_id)
+
+        node_map = {}
+        for record in result:
+            node_data = {"id": record["id"], "label": record["label"], "group": record["type"]}
+            nodes.append(node_data)
+            node_map[record["id"]] = node_data
+
+        # Query to get all relationships between the entities of this case
+        result = session.run("""
+            MATCH (e1:Entity)-[:BELONGS_TO]->(c:Case {case_id: $case_id})
+            MATCH (e2:Entity)-[:BELONGS_TO]->(c)
+            MATCH (e1)-[r]->(e2)
+            WHERE NOT type(r) = 'BELONGS_TO'
+            RETURN id(e1) AS from, id(e2) AS to, type(r) AS label
+        """, case_id=case_id)
+
+        for record in result:
+            edges.append({"from": record["from"], "to": record["to"], "label": record["label"]})
+
+    driver.close()
+    return {"nodes": nodes, "edges": edges}

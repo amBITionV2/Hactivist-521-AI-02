@@ -1,18 +1,15 @@
-// src/App.jsx (Final Version)
+// src/App.jsx (Final version with Graph)
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import GraphView from './GraphView'; // <-- IMPORT THE NEW COMPONENT
 import './App.css';
 
 function App() {
-  // State for the list of all cases
   const [cases, setCases] = useState([]);
-  // State for the currently selected case's data
   const [selectedCase, setSelectedCase] = useState(null);
   const [simulation, setSimulation] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-
-  // --- File Upload State ---
   const [selectedFile, setSelectedFile] = useState(null);
   const [uploading, setUploading] = useState(false);
 
@@ -38,7 +35,6 @@ function App() {
   };
 
   const handleUpload = async () => {
-    // ... (this function remains the same)
     if (!selectedFile) {
       setError('Please select a file first.');
       return;
@@ -50,7 +46,7 @@ function App() {
     try {
       await axios.post('http://localhost:8000/upload-case/', formData);
       setSelectedFile(null);
-      document.getElementById('file-input').value = null; // Clear file input
+      document.getElementById('file-input').value = null;
       fetchCases();
     } catch (err) {
       setError('File upload failed.');
@@ -61,7 +57,7 @@ function App() {
 
   const handleCaseSelect = async (caseItem) => {
     if (caseItem.status !== 'complete') {
-      setError('Simulation can only be run on complete cases.');
+      setError('Details can only be viewed for complete cases.');
       return;
     }
     setSelectedCase(caseItem);
@@ -83,24 +79,27 @@ function App() {
     setError('');
   };
 
-  // --- Main Render Logic ---
   return (
     <div className="App">
       <header className="App-header">
         <h1>Cognitive Crime Analysis System</h1>
-
-        {/* If a case is selected, show the detail view. Otherwise, show the dashboard. */}
         {selectedCase ? (
-          // --- CASE DETAIL VIEW ---
           <div className="case-detail">
             <button onClick={handleBackToList}>&larr; Back to Dashboard</button>
-            <h2>Simulation for Case: {selectedCase.filename}</h2>
-            {isLoading && <p>Generating simulation...</p>}
+            <h2>Details for Case: {selectedCase.filename}</h2>
             {error && <p className="error">{error}</p>}
-            <pre className="simulation-text">{simulation}</pre>
+
+            {/* --- ADD THE GRAPHVIEW COMPONENT HERE --- */}
+            <GraphView caseId={selectedCase.id} />
+
+            <h3>AI Generated Simulation</h3>
+            {isLoading && <p>Generating simulation...</p>}
+            {!isLoading && simulation && (
+              <pre className="simulation-text">{simulation}</pre>
+            )}
           </div>
         ) : (
-          // --- DASHBOARD VIEW ---
+          // ... Dashboard View remains the same ...
           <>
             <div className="upload-section">
               <h2>Upload New Case File</h2>
