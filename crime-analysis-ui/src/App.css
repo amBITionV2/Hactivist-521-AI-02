@@ -104,3 +104,34 @@ label {
     padding: 8px;
   }
 }
+
+/* src/App.css - Add to the end of the file */
+.case-detail {
+  text-align: left;
+  width: 80%;
+  max-width: 900px;
+}
+
+.simulation-text {
+  white-space: pre-wrap; /* Allows text to wrap */
+  word-wrap: break-word;
+  background-color: #282c34;
+  padding: 20px;
+  border-radius: 8px;
+  border: 1px solid #61dafb;
+  font-size: 1em;
+  line-height: 1.6;
+}
+
+.clickable {
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.clickable:hover {
+  background-color: #444a57;
+}
+
+.error {
+  color: #ff6666;
+}

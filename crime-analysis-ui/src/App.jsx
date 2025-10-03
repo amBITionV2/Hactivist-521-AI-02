@@ -1,31 +1,26 @@
-// src/App.jsx (Final Version)
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
-
+// ...existing code...
 function App() {
-  // State for the list of all cases
   const [cases, setCases] = useState([]);
-  // State for the currently selected case's data
   const [selectedCase, setSelectedCase] = useState(null);
   const [simulation, setSimulation] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-
-  // --- File Upload State ---
   const [selectedFile, setSelectedFile] = useState(null);
   const [uploading, setUploading] = useState(false);
-
-  // --- Detective Agent Chat State ---
-  const [chatMessages, setChatMessages] = useState([]); // {role, text}
+  const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [clues, setClues] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
-
-  // --- Suspect Image Generation State ---
   const [suspectDescription, setSuspectDescription] = useState('');
   const [suspectImageUrl, setSuspectImageUrl] = useState('');
   const [imageLoading, setImageLoading] = useState(false);
+
+  useEffect(() => {
+    fetchCases();
+  }, []);
 
   const fetchCases = async () => {
     setIsLoading(true);
@@ -40,16 +35,11 @@ function App() {
     }
   };
 
-  useEffect(() => {
-    fetchCases();
-  }, []);
-
   const handleFileChange = (event) => {
     setSelectedFile(event.target.files[0]);
   };
 
   const handleUpload = async () => {
-    // ... (this function remains the same)
     if (!selectedFile) {
       setError('Please select a file first.');
       return;
@@ -59,9 +49,13 @@ function App() {
     const formData = new FormData();
     formData.append('file', selectedFile);
     try {
-      await axios.post('http://localhost:8000/upload-case/', formData);
+      await axios.post('http://localhost:8000/upload-case/', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
       setSelectedFile(null);
-      document.getElementById('file-input').value = null; // Clear file input
+      document.getElementById('file-input').value = null;
       fetchCases();
     } catch (err) {
       setError('File upload failed.');
@@ -72,7 +66,7 @@ function App() {
 
   const handleCaseSelect = async (caseItem) => {
     if (caseItem.status !== 'complete') {
-      setError('Simulation can only be run on complete cases.');
+      setError('Details can only be viewed for complete cases.');
       return;
     }
     setSelectedCase(caseItem);
@@ -88,18 +82,10 @@ function App() {
     }
   };
 
-  const handleBackToList = () => {
-    setSelectedCase(null);
-    setSimulation('');
-    setError('');
-  };
-
-  // --- Detective Agent Chat Handlers ---
   const handleChatSend = async () => {
     if (!chatInput) return;
     setChatLoading(true);
     setError('');
-    // Add user message to chat
     setChatMessages((prev) => [...prev, { role: 'user', text: chatInput }]);
     try {
       const caseText = selectedCase ? selectedCase.filename : '';
@@ -117,7 +103,6 @@ function App() {
     }
   };
 
-  // --- Suspect Image Generation Handler ---
   const handleGenerateImage = async () => {
     if (!suspectDescription) return;
     setImageLoading(true);
@@ -134,23 +119,38 @@ function App() {
     }
   };
 
-  // --- Main Render Logic ---
   return (
     <div className="App">
       <header className="App-header">
         <h1>Cognitive Crime Analysis System</h1>
-
-        {/* If a case is selected, show the detail view. Otherwise, show the dashboard. */}
-        {selectedCase ? (
-          // --- CASE DETAIL VIEW ---
+        <div className="upload-section">
+          <h2>Upload New Case File</h2>
+          <input id="file-input" type="file" onChange={handleFileChange} />
+          <button onClick={handleUpload} disabled={uploading}>
+            {uploading ? 'Uploading...' : 'Upload'}
+          </button>
+        </div>
+        <h2>Case Dashboard</h2>
+        <button onClick={fetchCases} disabled={isLoading}>
+          {isLoading ? 'Refreshing...' : 'Refresh List'}
+        </button>
+        {error && <p className="error">{error}</p>}
+        <div className="case-list">
+          <ul>
+            {cases.map((caseItem) => (
+              <li key={caseItem.id} onClick={() => handleCaseSelect(caseItem)} className={caseItem.status === 'complete' ? 'clickable' : ''}>
+                <strong>File:</strong> {caseItem.filename} | <strong>Status:</strong> {caseItem.status}
+              </li>
+            ))}
+          </ul>
+        </div>
+        {selectedCase && (
           <div className="case-detail">
-            <button onClick={handleBackToList}>&larr; Back to Dashboard</button>
+            <button onClick={() => setSelectedCase(null)}>&larr; Back to Dashboard</button>
             <h2>Simulation for Case: {selectedCase.filename}</h2>
             {isLoading && <p>Generating simulation...</p>}
             {error && <p className="error">{error}</p>}
             <pre className="simulation-text">{simulation}</pre>
-
-            {/* Detective Agent Chat Section */}
             <div className="detective-chat">
               <h3>Detective Agent Chat</h3>
               <div className="chat-window">
@@ -170,7 +170,6 @@ function App() {
               <button onClick={handleChatSend} disabled={chatLoading || !chatInput}>
                 {chatLoading ? 'Sending...' : 'Send'}
               </button>
-              {/* Clues Section */}
               {clues.length > 0 && (
                 <div className="clues-section">
                   <h4>Generated Clues</h4>
@@ -182,8 +181,6 @@ function App() {
                 </div>
               )}
             </div>
-
-            {/* Suspect Image Generation Section */}
             <div className="suspect-image-section">
               <h3>Suspect Image Generator</h3>
               <input
@@ -204,31 +201,6 @@ function App() {
               )}
             </div>
           </div>
-        ) : (
-          // --- DASHBOARD VIEW ---
-          <>
-            <div className="upload-section">
-              <h2>Upload New Case File</h2>
-              <input id="file-input" type="file" onChange={handleFileChange} />
-              <button onClick={handleUpload} disabled={uploading}>
-                {uploading ? 'Uploading...' : 'Upload'}
-              </button>
-            </div>
-            <h2>Case Dashboard</h2>
-            <button onClick={fetchCases} disabled={isLoading}>
-              {isLoading ? 'Refreshing...' : 'Refresh List'}
-            </button>
-            {error && <p className="error">{error}</p>}
-            <div className="case-list">
-              <ul>
-                {cases.map((caseItem) => (
-                  <li key={caseItem.id} onClick={() => handleCaseSelect(caseItem)} className={caseItem.status === 'complete' ? 'clickable' : ''}>
-                    <strong>File:</strong> {caseItem.filename} | <strong>Status:</strong> {caseItem.status}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </>
         )}
       </header>
     </div>
