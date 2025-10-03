@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from . import models, schemas
 from .database import SessionLocal, engine
 from workers.tasks import process_case_file_task # <-- IMPORT THE TASK
+from .api import detective
 from typing import List
 
 # --- Load environment variables from .env file ---
@@ -19,8 +20,10 @@ load_dotenv()
 NEO4J_URI = "bolt://localhost:7687"
 NEO4J_AUTH = ("neo4j", "Crime2*graph")
 
+
 models.Base.metadata.create_all(bind=engine)
 app = FastAPI(title="Cognitive Crime Analysis System API")
+app.include_router(detective.router)
 
 origins = [
     "http://localhost:5173", # The address of our React app
