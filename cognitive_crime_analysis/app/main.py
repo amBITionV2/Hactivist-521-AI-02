@@ -1,35 +1,32 @@
-# Add these imports at the top
+import shutil
 import os
 import requests
 import json
 from dotenv import load_dotenv
-from neo4j import GraphDatabase
+from typing import List, Optional
 from fastapi import FastAPI, Depends, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from neo4j import GraphDatabase
+from fastapi.staticfiles import StaticFiles
+from .api import detective 
 from . import models, schemas
 from .database import SessionLocal, engine
-from workers.tasks import process_case_file_task # <-- IMPORT THE TASK
-from .api import detective
-from typing import List
+from workers.tasks import process_case_file_task, analyze_image_task
 
-# --- Load environment variables from .env file ---
+# Load environment variables from .env file
 load_dotenv()
 
-# --- Add Neo4j connection details here as well ---
-NEO4J_URI = "bolt://localhost:7687"
-NEO4J_AUTH = ("neo4j", "Crime2*graph")
-
-
+# This creates the tables in your database
 models.Base.metadata.create_all(bind=engine)
+
 app = FastAPI(title="Cognitive Crime Analysis System API")
-app.include_router(detective.router)
 
+# --- CORS middleware ---
 origins = [
-    "http://localhost:5173", # The address of our React app
-    "http://localhost:3000", # A common alternative for React apps
+    "http://localhost:5173",
+    "http://localhost:3000",
 ]
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -38,6 +35,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- Neo4j Connection Details ---
+NEO4J_URI = "bolt://localhost:7687"
+NEO4J_AUTH = ("neo4j", os.getenv("NEO4J_PASSWORD", "Crime2*graph")) # Remember to set your password
+
+# --- Dependency to get a database session ---
 def get_db():
     db = SessionLocal()
     try:
@@ -45,52 +47,54 @@ def get_db():
     finally:
         db.close()
 
+# --- API Endpoints ---
 @app.get("/")
 def read_root():
     return {"status": "API is running locally"}
 
-# This endpoint is the same as before
-@app.post("/cases/", response_model=schemas.Case)
-def create_case(case: schemas.CaseCreate, db: Session = Depends(get_db)):
-    db_case = models.Case(filename=case.filename)
-    db.add(db_case)
-    db.commit()
-    db.refresh(db_case)
-    return db_case
+@app.get("/cases/", response_model=List[schemas.Case])
+def read_cases(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    cases = db.query(models.Case).order_by(models.Case.id.desc()).offset(skip).limit(limit).all()
+    return cases
 
-# --- NEW ENDPOINT ---
-# app/main.py
-
-# ... (all the other imports and code stay the same) ...
-
-# --- MODIFIED ENDPOINT ---
 @app.post("/upload-case/")
 async def upload_and_process_case(db: Session = Depends(get_db), file: UploadFile = File(...)):
     """
-    Upload a file, create a case record, and dispatch a background task for processing.
+    Saves uploaded file, creates a case record, and dispatches the correct background task.
     """
-    # 1. Create a case record in PostgreSQL
-    db_case = models.Case(filename=file.filename, status="processing")
+    # 1. Save the file to the 'uploads' directory
+    file_location = f"uploads/{file.filename}"
+    with open(file_location, "wb+") as file_object:
+        shutil.copyfileobj(file.file, file_object)
+
+    # 2. Create a case record in PostgreSQL
+    db_case = models.Case(filename=file.filename, status="processing", file_path=file_location)
     db.add(db_case)
     db.commit()
     db.refresh(db_case)
-    
-    # 2. Read the file content
-    file_content_bytes = await file.read()
-    file_content_str = file_content_bytes.decode('utf-8')
 
-    # 3. Dispatch the background processing task WITH the file content
-    process_case_file_task.delay(db_case.id, file_content_str)
-    
-    # 4. Respond to the user immediately
-    return {"message": "File uploaded and is being processed in the background.", "case_id": db_case.id}
+    # 3. Decide which worker to call based on file type
+    file_extension = file.filename.split('.')[-1].lower()
+    if file_extension in ['txt', 'md', 'log']:
+        # ONLY read content if it's a text file
+        with open(file_location, "r", encoding='utf-8') as f:
+            content = f.read()
+        process_case_file_task.delay(db_case.id, content)
+    elif file_extension in ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp']:
+        # For images, just send the file path
+        analyze_image_task.delay(db_case.id, file_location)
+    else:
+        db_case.status = "failed"
+        db.commit()
+        return {"message": "Unsupported file type.", "case_id": db_case.id}
+
+    return {"message": "File uploaded and is being processed.", "case_id": db_case.id}
 
 @app.post("/cases/{case_id}/simulate")
 def create_simulation(case_id: int):
     """
     Generates a crime narrative simulation using entities from the knowledge graph.
     """
-    # 1. Fetch entities for the specific case from Neo4j
     entities = []
     driver = GraphDatabase.driver(NEO4J_URI, auth=NEO4J_AUTH)
     with driver.session() as session:
@@ -105,7 +109,6 @@ def create_simulation(case_id: int):
     if not entities:
         return {"error": "No entities found for this case. Ensure the file has been processed."}
 
-    # 2. Call the Gemini API
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         return {"error": "GEMINI_API_KEY not found. Please set it in your .env file."}
@@ -128,51 +131,43 @@ def create_simulation(case_id: int):
         return {"case_id": case_id, "simulation": narrative}
     else:
         return {"error": "Failed to generate simulation from Gemini API.", "details": response.text}
-    
-@app.get("/cases/", response_model=List[schemas.Case])
-def read_cases(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    """
-    Retrieve all case records from the database.
-    """
-    cases = db.query(models.Case).offset(skip).limit(limit).all()
-    return cases
 
-# app/main.py - Add this new endpoint
-
-# ... (all your existing code and imports) ...
+# app/main.py - Replace the get_case_graph function
 
 @app.get("/cases/{case_id}/graph")
 def get_case_graph(case_id: int):
     """
-    Retrieves all nodes and relationships for a specific case to be visualized.
+    Retrieves all nodes AND relationships for a specific case to be visualized.
     """
     nodes = []
     edges = []
+    node_ids = set() # Use a set to track which nodes are part of this case
+
     driver = GraphDatabase.driver(NEO4J_URI, auth=NEO4J_AUTH)
     with driver.session() as session:
-        # Query to get all entities belonging to the case
+        # Step 1: Get all entities for the case and add them as nodes
         result = session.run("""
             MATCH (e:Entity)-[:BELONGS_TO]->(c:Case {case_id: $case_id})
-            RETURN id(e) AS id, e.name AS label, e.type AS type
+            RETURN id(e) AS id, e.name AS label, e.type AS group
         """, case_id=case_id)
-
-        node_map = {}
+        
         for record in result:
-            node_data = {"id": record["id"], "label": record["label"], "group": record["type"]}
-            nodes.append(node_data)
-            node_map[record["id"]] = node_data
+            nodes.append({"id": record["id"], "label": record["label"], "group": record["group"]})
+            node_ids.add(record["id"])
 
-        # Query to get all relationships between the entities of this case
+        # Step 2: Get all relationships BETWEEN the nodes we just found
         result = session.run("""
-            MATCH (e1:Entity)-[:BELONGS_TO]->(c:Case {case_id: $case_id})
-            MATCH (e2:Entity)-[:BELONGS_TO]->(c)
-            MATCH (e1)-[r]->(e2)
-            WHERE NOT type(r) = 'BELONGS_TO'
-            RETURN id(e1) AS from, id(e2) AS to, type(r) AS label
-        """, case_id=case_id)
+            MATCH (source)-[r]->(target)
+            WHERE id(source) IN $node_ids AND id(target) IN $node_ids AND NOT type(r) = 'BELONGS_TO'
+            RETURN id(source) AS `from`, id(target) AS `to`, type(r) AS label
+        """, node_ids=list(node_ids))
 
         for record in result:
             edges.append({"from": record["from"], "to": record["to"], "label": record["label"]})
-
+    
     driver.close()
     return {"nodes": nodes, "edges": edges}
+
+# Mount the 'uploads' directory to serve static files (images)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+app.include_router(detective.router)

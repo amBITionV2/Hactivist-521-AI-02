@@ -1,81 +1,134 @@
-"""
-Detective agent endpoints for chat and suspect image generation using Gemini API.
-"""
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
 import os
+import json
 import requests
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
+from neo4j import GraphDatabase
+from dotenv import load_dotenv
 
+# --- Database Integration ---
+# We need to import these to update our case table with the new image
+from app.database import SessionLocal
+from app.models import Case
+from sqlalchemy.orm import Session
+
+# Load environment variables from .env file
+load_dotenv()
+
+# --- Configuration ---
 router = APIRouter()
-
+NEO4J_URI = "bolt://localhost:7687"
+NEO4J_AUTH = ("neo4j", "Crime2*graph") # Remember to set your password
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_CHAT_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent"
-GEMINI_IMAGE_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro-vision:generateContent"
 
-class ChatRequest(BaseModel):
-    message: str
-    case_file: str = None  # Optional: case file text
-    suspect_description: str = None  # Optional: suspect description
-
-class ChatResponse(BaseModel):
-    reply: str
-    clues: list[str]
+# --- Pydantic Models ---
+class QuestionRequest(BaseModel):
+    question: str
 
 class SuspectImageRequest(BaseModel):
     description: str
 
-class SuspectImageResponse(BaseModel):
-    image_url: str
+# Dependency to get a database session
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-@router.post("/detective/chat", response_model=ChatResponse)
-def detective_chat(request: ChatRequest):
+# --- API Endpoints ---
+
+@router.post("/cases/{case_id}/ask", tags=["Detective"])
+@router.post("/cases/{case_id}/ask", tags=["Detective"])
+def ask_ai_detective(case_id: int, request: QuestionRequest):
     """
-    Chat with detective agent, generate clues using Gemini API.
-    If suspect description is missing, prompt user for it.
+    Answers a user's question by reasoning about the context of a case's knowledge graph.
+    """
+    # 1. Retrieve context from the knowledge graph (this part is the same)
+    context_items = []
+    driver = GraphDatabase.driver(NEO4J_URI, auth=NEO4J_AUTH)
+    with driver.session() as session:
+        result = session.run("""
+            MATCH (e1:Entity)-[:BELONGS_TO]->(c:Case {case_id: $case_id})
+            OPTIONAL MATCH (e1)-[r]->(e2:Entity) WHERE NOT type(r) = 'BELONGS_TO'
+            RETURN e1.name as entity1, type(r) as relation, e2.name as entity2
+        """, case_id=case_id)
+        for record in result:
+            if record["relation"]:
+                context_items.append(f"- {record['entity1']} {record['relation'].replace('_', ' ')} {record['entity2']}.")
+            else:
+                context_items.append(f"- {record['entity1']} is an entity in this case.")
+    driver.close()
+
+    if not context_items:
+        return {"answer": "I'm sorry, I don't have enough information about this case to answer."}
+
+    # --- 2. THE NEW, SMARTER PROMPT ---
+    context_str = "\n".join(set(context_items))
+    prompt = f"""
+    You are an expert AI detective. Your task is to analyze a set of known facts from a case's knowledge graph and answer a user's question.
+    Use your reasoning abilities to connect the facts and infer logical conclusions, even if they are not explicitly stated.
+    If the user asks for "clues", you should identify any piece of information that could be significant to an investigation (e.g., specific times, locations, objects, inconsistencies, or actions) and explain why it's a clue.
+    Base your answer on the provided facts, but you are allowed to make logical deductions.
+
+    **Known Facts from Knowledge Graph:**
+    {context_str}
+
+    **User's Question:**
+    {request.question}
+
+    **Your Detective Analysis:**
+    """
+
+    # 3. Call the Gemini API (this part is the same)
+    if not GEMINI_API_KEY:
+        return {"error": "GEMINI_API_KEY not found."}
+    
+    api_url = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    headers = {'Content-Type': 'application/json'}
+    
+    response = requests.post(api_url, headers=headers, data=json.dumps(payload))
+    response.raise_for_status()
+    
+    result = response.json()
+    answer = result['candidates'][0]['content']['parts'][0]['text']
+
+    return {"answer": answer}
+
+@router.post("/cases/{case_id}/generate-suspect-image", tags=["Detective"])
+def generate_suspect_image(case_id: int, request: SuspectImageRequest, db: Session = Depends(get_db)):
+    """
+    Generates a suspect image using Imagen and saves the result to the case.
     """
     if not GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="Gemini API key not set.")
-    # Try to extract suspect description from case file
-    suspect_desc = request.suspect_description
-    if not suspect_desc and request.case_file:
-        # Simple extraction: look for lines containing 'suspect:'
-        for line in request.case_file.split('\n'):
-            if 'suspect:' in line.lower():
-                suspect_desc = line.split(':', 1)[-1].strip()
-                break
-    prompt = f"Detective agent, analyze the following case and chat with the user. Generate clues and ask questions. Case: {request.case_file}\nUser: {request.message}"
-    if not suspect_desc:
-        prompt += "\nIf you need more information about the suspect, ask the user for a description."
-    else:
-        prompt += f"\nSuspect Description: {suspect_desc}"
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}]
-    }
-    headers = {"Authorization": f"Bearer {GEMINI_API_KEY}", "Content-Type": "application/json"}
-    response = requests.post(GEMINI_CHAT_URL, json=payload, headers=headers)
-    if response.status_code != 200:
-        raise HTTPException(status_code=500, detail="Gemini chat API error.")
-    data = response.json()
-    reply = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-    clues = [line for line in reply.split("\n") if "clue" in line.lower()]
-    return ChatResponse(reply=reply, clues=clues)
+        return {"error": "GEMINI_API_KEY not found."}
 
-@router.post("/detective/suspect-image", response_model=SuspectImageResponse)
-def generate_suspect_image(request: SuspectImageRequest):
-    """
-    Generate suspect image from description using Gemini API.
-    """
-    if not GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="Gemini API key not set.")
-    prompt = f"Generate a realistic image of a suspect with the following description: {request.description}"
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}]
-    }
-    headers = {"Authorization": f"Bearer {GEMINI_API_KEY}", "Content-Type": "application/json"}
-    response = requests.post(GEMINI_IMAGE_URL, json=payload, headers=headers)
-    if response.status_code != 200:
-        raise HTTPException(status_code=500, detail="Gemini image API error.")
-    data = response.json()
-    # Extract image URL or base64 (depends on Gemini API response)
-    image_url = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-    return SuspectImageResponse(image_url=image_url)
+    # Use the recommended Imagen model for high-quality image generation
+    # NEW, CORRECT LINE
+    # NEW, CORRECTED LINE
+    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key={GEMINI_API_KEY}"
+    
+    prompt = f"A realistic police sketch of a suspect. {request.description}"
+    payload = {"instances": [{"prompt": prompt}], "parameters": {"sampleCount": 1}}
+    headers = {'Content-Type': 'application/json'}
+
+    response = requests.post(api_url, headers=headers, data=json.dumps(payload))
+    response.raise_for_status()
+    result = response.json()
+
+    # The API returns the image as a base64 encoded string
+    base64_image = result.get("predictions", [{}])[0].get("bytesBase64Encoded")
+    if not base64_image:
+        return {"error": "Failed to get image data from the API."}
+
+    image_data_url = f"data:image/png;base64,{base64_image}"
+
+    # Save the generated image URL to our database
+    case_to_update = db.query(Case).filter(Case.id == case_id).first()
+    if case_to_update:
+        case_to_update.suspect_image = image_data_url
+        db.commit()
+    
+    return {"suspect_image_url": image_data_url}
+

@@ -7,6 +7,8 @@ import requests
 from celery import Celery
 from neo4j import GraphDatabase
 from dotenv import load_dotenv
+import google.generativeai as genai
+from PIL import Image
 
 # --- App and Environment Setup ---
 celery_app = Celery('tasks', broker='redis://localhost:6379/0', backend='redis://localhost:6379/0')
@@ -105,4 +107,49 @@ def process_case_file_task(case_id: int, file_content: str):
         db.close()
 
     print(f"WORKER: Finished processing for case_id: {case_id}")
+    return {"status": "Complete"}
+
+@celery_app.task
+def analyze_image_task(case_id: int, file_path: str):
+    """
+    Sends an image to Gemini for analysis and stores the result.
+    """
+    print(f"WORKER: Starting IMAGE analysis for case_id: {case_id}")
+    try:
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY not found.")
+
+        genai.configure(api_key=api_key)
+
+        # Use a model that supports vision
+        model = genai.GenerativeModel('gemini-2.5-flash')
+
+        img = Image.open(file_path)
+        prompt = "Analyze this crime scene photo. Describe any potential evidence, points of interest, or unusual details you observe. Be objective and factual."
+
+        # Send the prompt and the image to the model
+        response = model.generate_content([prompt, img])
+        analysis_text = response.text
+
+        # Store the analysis in the database
+        from app.database import SessionLocal
+        from app.models import Case
+        db = SessionLocal()
+        try:
+            case_to_update = db.query(Case).filter(Case.id == case_id).first()
+            if case_to_update:
+                case_to_update.status = "complete"
+                case_to_update.image_analysis = analysis_text
+                db.commit()
+                print(f"WORKER: Stored image analysis for case_id: {case_id}")
+        finally:
+            db.close()
+
+    except Exception as e:
+        print(f"WORKER: An error occurred during image analysis for case {case_id}: {e}")
+        # Optionally, update status to 'failed'
+        return {"status": "Failed", "error": str(e)}
+
+    print(f"WORKER: Finished image analysis for case_id: {case_id}")
     return {"status": "Complete"}
