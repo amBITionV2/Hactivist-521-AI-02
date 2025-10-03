@@ -22,32 +22,49 @@ const GraphView = ({ caseId }) => {
           const options = {
             nodes: {
               shape: 'dot',
-              size: 20,
+              size: 18, // Slightly smaller nodes
               font: {
                 size: 12,
                 color: '#ffffff'
-              },
-              borderWidth: 2,
             },
-            edges: {
-              width: 2,
+             borderWidth: 2,
+          },
+          edges: {
+            width: 2,
+            color: '#a0aec0', // Softer edge color
+            arrows: 'to',
+            font: {
               color: '#ffffff',
-              arrows: 'to',
-              font: {
-                size: 10,
-                align: 'middle',
-                color: '#ffffff',
-                strokeWidth: 0
-              }
+              size: 10,
+              align: 'middle',
+              strokeWidth: 0,
             },
-            physics: {
-              enabled: true,
+            smooth: { // This makes the edges curved
+              type: 'curvedCW',
+              roundness: 0.2
+            }
+          },
+          physics: {
+            // We still use physics, but for the hierarchical layout
+            enabled: true,
+            hierarchicalRepulsion: {
+              nodeDistance: 150, // Increase distance between nodes
             },
-            interaction: {
-              hover: true,
-              tooltipDelay: 200,
+          },
+          layout: {
+            // This is the key change to make the graph hierarchical
+            hierarchical: {
+            enabled: true,
+            sortMethod: 'directed', // Sorts from the source of the arrows
+            direction: 'LR', // Layout from Left to Right
             },
-          };
+          },
+          interaction: {
+            hover: true,
+            tooltipDelay: 200,
+          },
+        };
+
           new Network(graphRef.current, graphData, options);
         }
       } catch (err) {

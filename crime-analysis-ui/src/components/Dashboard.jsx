@@ -1,40 +1,56 @@
 import React from 'react';
 import GraphView from './GraphView';
+import DetectiveChat from './DetectiveChat';
+import SuspectGenerator from './SuspectGenerator';
 
-const Dashboard = ({ selectedCase, simulation, onBack }) => {
+const Dashboard = ({ selectedCase, simulation, onBack, onImageGenerated }) => {
   if (!selectedCase) return null;
+
+  const isImageCase = selectedCase.image_analysis !== null;
+  const API_URL = 'http://localhost:8000';
 
   return (
     <div className="w-full max-w-7xl mx-auto p-4">
       <button onClick={onBack} className="mb-4 bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded">
-        &larr; Back to Dashboard
+        &larr; Back to Case List
       </button>
       <h2 className="text-2xl font-bold text-gray-200 mb-4">Case File #{selectedCase.id}: {selectedCase.filename}</h2>
 
-      {/* This is the 3-column grid layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-
-        {/* Column 1: Knowledge Graph */}
+        {/* Column 1: Visuals (Graph or Evidence) */}
         <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-          <h3 className="text-xl font-semibold text-teal-400 mb-2">Unified Case File (Knowledge Graph)</h3>
-          <GraphView caseId={selectedCase.id} />
+          {isImageCase ? (
+            <>
+              <h3 className="text-xl font-semibold text-teal-400 mb-2">Visual Evidence</h3>
+              <img src={`${API_URL}/${selectedCase.file_path}`} alt={selectedCase.filename} className="w-full h-auto rounded-lg mt-4" />
+            </>
+          ) : (
+            <>
+              <h3 className="text-xl font-semibold text-teal-400 mb-2">Knowledge Graph</h3>
+              <GraphView caseId={selectedCase.id} />
+            </>
+          )}
         </div>
 
-        {/* Column 2: Inference Engine (Placeholder) */}
+        {/* Column 2: Inference Engine (Now with interactive tools) */}
         <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-          <h3 className="text-xl font-semibold text-teal-400 mb-2">Inference Engine (AI Detective)</h3>
-          <p className="text-gray-400">Future home for key patterns, anomalies, and suspect composites.</p>
+          <h3 className="text-xl font-semibold text-teal-400 mb-2">Inference Engine</h3>
+          {/* Only show chat for text-based cases with a graph */}
+          {!isImageCase && <DetectiveChat caseId={selectedCase.id} />}
+          <SuspectGenerator 
+            caseId={selectedCase.id} 
+            existingImageUrl={selectedCase.suspect_image}
+            onImageGenerated={onImageGenerated}
+          />
         </div>
 
-        {/* Column 3: Simulation Engine */}
+        {/* Column 3: AI Analysis */}
         <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
-          <h3 className="text-xl font-semibold text-teal-400 mb-2">Predictive & Simulation Engine</h3>
-          <h4 className="text-lg font-semibold text-gray-300 mt-4">Crime Simulation (Narrative)</h4>
+          <h3 className="text-xl font-semibold text-teal-400 mb-2">AI Analysis</h3>
           <pre className="mt-2 text-gray-300 whitespace-pre-wrap font-sans text-sm h-96 overflow-y-auto">
-            {simulation || "Generating simulation..."}
+            {isImageCase ? selectedCase.image_analysis : (simulation || "Generating text simulation...")}
           </pre>
         </div>
-
       </div>
     </div>
   );

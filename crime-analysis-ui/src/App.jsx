@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
+import Dashboard from './components/Dashboard';
 import './App.css';
-// ...existing code...
+
 function App() {
   const [cases, setCases] = useState([]);
   const [selectedCase, setSelectedCase] = useState(null);
@@ -10,17 +11,6 @@ function App() {
   const [error, setError] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [uploading, setUploading] = useState(false);
-  const [chatMessages, setChatMessages] = useState([]);
-  const [chatInput, setChatInput] = useState('');
-  const [clues, setClues] = useState([]);
-  const [chatLoading, setChatLoading] = useState(false);
-  const [suspectDescription, setSuspectDescription] = useState('');
-  const [suspectImageUrl, setSuspectImageUrl] = useState('');
-  const [imageLoading, setImageLoading] = useState(false);
-
-  useEffect(() => {
-    fetchCases();
-  }, []);
 
   const fetchCases = async () => {
     setIsLoading(true);
@@ -34,6 +24,10 @@ function App() {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchCases();
+  }, []);
 
   const handleFileChange = (event) => {
     setSelectedFile(event.target.files[0]);
@@ -50,13 +44,11 @@ function App() {
     formData.append('file', selectedFile);
     try {
       await axios.post('http://localhost:8000/upload-case/', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
       setSelectedFile(null);
       document.getElementById('file-input').value = null;
-      fetchCases();
+      setTimeout(fetchCases, 1000); 
     } catch (err) {
       setError('File upload failed.');
     } finally {
@@ -69,140 +61,78 @@ function App() {
       setError('Details can only be viewed for complete cases.');
       return;
     }
+    
+    const isImageCase = caseItem.filename.match(/\.(jpeg|jpg|png|webp|gif|bmp)$/) != null;
+
     setSelectedCase(caseItem);
-    setIsLoading(true);
     setError('');
-    try {
-      const response = await axios.post(`http://localhost:8000/cases/${caseItem.id}/simulate`);
-      setSimulation(response.data.simulation);
-    } catch (err) {
-      setError('Failed to fetch simulation.');
-    } finally {
-      setIsLoading(false);
+
+    if (!isImageCase) {
+      setIsLoading(true);
+      try {
+        const response = await axios.post(`http://localhost:8000/cases/${caseItem.id}/simulate`);
+        setSimulation(response.data.simulation);
+      } catch (err) {
+        setError('Failed to fetch simulation.');
+      } finally {
+        setIsLoading(false);
+      }
+    } else {
+      setSimulation(''); 
     }
+  };
+  
+  const handleBackToList = () => {
+    setSelectedCase(null);
+    setSimulation('');
+    setError('');
   };
 
-  const handleChatSend = async () => {
-    if (!chatInput) return;
-    setChatLoading(true);
-    setError('');
-    setChatMessages((prev) => [...prev, { role: 'user', text: chatInput }]);
-    try {
-      const caseText = selectedCase ? selectedCase.filename : '';
-      const res = await axios.post('http://localhost:8000/detective/chat', {
-        message: chatInput,
-        case_file: caseText
-      });
-      setChatMessages((prev) => [...prev, { role: 'agent', text: res.data.reply }]);
-      setClues(res.data.clues || []);
-      setChatInput('');
-    } catch (err) {
-      setError('Detective agent chat failed.');
-    } finally {
-      setChatLoading(false);
-    }
+  const handleImageGenerated = (imageUrl) => {
+    setSelectedCase(prevCase => ({
+      ...prevCase,
+      suspect_image: imageUrl
+    }));
   };
 
-  const handleGenerateImage = async () => {
-    if (!suspectDescription) return;
-    setImageLoading(true);
-    setError('');
-    try {
-      const res = await axios.post('http://localhost:8000/detective/suspect-image', {
-        description: suspectDescription
-      });
-      setSuspectImageUrl(res.data.image_url);
-    } catch (err) {
-      setError('Suspect image generation failed.');
-    } finally {
-      setImageLoading(false);
-    }
-  };
+  if (selectedCase) {
+    return (
+      <Dashboard
+        selectedCase={selectedCase}
+        simulation={simulation}
+        onBack={handleBackToList}
+        onImageGenerated={handleImageGenerated}
+      />
+    );
+  }
 
   return (
-    <div className="App">
-      <header className="App-header">
-        <h1>Cognitive Crime Analysis System</h1>
-        <div className="upload-section">
-          <h2>Upload New Case File</h2>
-          <input id="file-input" type="file" onChange={handleFileChange} />
-          <button onClick={handleUpload} disabled={uploading}>
+    <div className="w-full min-h-screen bg-gray-900 text-white p-8">
+      <h1 className="text-4xl font-bold text-center mb-2">Cognitive Crime Analysis System</h1>
+      <div className="max-w-3xl mx-auto">
+        <div className="bg-gray-800 p-6 my-8 rounded-lg shadow-lg">
+          <h2 className="text-2xl font-semibold text-teal-400 mb-4">Upload New Case File (Text or Image)</h2>
+          <input id="file-input" type="file" onChange={handleFileChange} className="mb-4" />
+          <button onClick={handleUpload} disabled={uploading} className="bg-teal-500 hover:bg-teal-400 text-white font-bold py-2 px-4 rounded">
             {uploading ? 'Uploading...' : 'Upload'}
           </button>
         </div>
-        <h2>Case Dashboard</h2>
-        <button onClick={fetchCases} disabled={isLoading}>
-          {isLoading ? 'Refreshing...' : 'Refresh List'}
-        </button>
-        {error && <p className="error">{error}</p>}
-        <div className="case-list">
-          <ul>
+        
+        <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
+          <h2 className="text-2xl font-semibold text-teal-400 mb-4">Case Dashboard</h2>
+          <button onClick={fetchCases} disabled={isLoading} className="mb-4 bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded">
+            {isLoading ? 'Refreshing...' : 'Refresh List'}
+          </button>
+          {error && <p className="text-red-500">{error}</p>}
+          <ul className="space-y-2">
             {cases.map((caseItem) => (
-              <li key={caseItem.id} onClick={() => handleCaseSelect(caseItem)} className={caseItem.status === 'complete' ? 'clickable' : ''}>
+              <li key={caseItem.id} onClick={() => handleCaseSelect(caseItem)} className={`p-4 rounded ${caseItem.status === 'complete' ? 'cursor-pointer hover:bg-gray-700' : 'opacity-50'}`}>
                 <strong>File:</strong> {caseItem.filename} | <strong>Status:</strong> {caseItem.status}
               </li>
             ))}
           </ul>
         </div>
-        {selectedCase && (
-          <div className="case-detail">
-            <button onClick={() => setSelectedCase(null)}>&larr; Back to Dashboard</button>
-            <h2>Simulation for Case: {selectedCase.filename}</h2>
-            {isLoading && <p>Generating simulation...</p>}
-            {error && <p className="error">{error}</p>}
-            <pre className="simulation-text">{simulation}</pre>
-            <div className="detective-chat">
-              <h3>Detective Agent Chat</h3>
-              <div className="chat-window">
-                {chatMessages.map((msg, idx) => (
-                  <div key={idx} className={msg.role === 'user' ? 'chat-user' : 'chat-agent'}>
-                    <strong>{msg.role === 'user' ? 'You' : 'Detective'}:</strong> {msg.text}
-                  </div>
-                ))}
-              </div>
-              <input
-                type="text"
-                value={chatInput}
-                onChange={e => setChatInput(e.target.value)}
-                placeholder="Ask the detective agent..."
-                disabled={chatLoading}
-              />
-              <button onClick={handleChatSend} disabled={chatLoading || !chatInput}>
-                {chatLoading ? 'Sending...' : 'Send'}
-              </button>
-              {clues.length > 0 && (
-                <div className="clues-section">
-                  <h4>Generated Clues</h4>
-                  <ul>
-                    {clues.map((clue, idx) => (
-                      <li key={idx}>{clue}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-            <div className="suspect-image-section">
-              <h3>Suspect Image Generator</h3>
-              <input
-                type="text"
-                value={suspectDescription}
-                onChange={e => setSuspectDescription(e.target.value)}
-                placeholder="Enter suspect description..."
-                disabled={imageLoading}
-              />
-              <button onClick={handleGenerateImage} disabled={imageLoading || !suspectDescription}>
-                {imageLoading ? 'Generating...' : 'Generate Image'}
-              </button>
-              {suspectImageUrl && (
-                <div className="suspect-image-result">
-                  <h4>Generated Suspect Image</h4>
-                  <img src={suspectImageUrl} alt="Suspect" style={{ maxWidth: '300px', border: '1px solid #ccc' }} />
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </header>
+      </div>
     </div>
   );
 }
