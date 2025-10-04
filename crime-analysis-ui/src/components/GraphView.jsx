@@ -18,6 +18,38 @@ const GraphView = ({ caseId }) => {
         const response = await axios.get(`http://localhost:8000/cases/${caseId}/graph`);
         const graphData = response.data;
 
+        // Define pastel colors for different node types
+        const pastelColors = [
+          '#FFB3BA', // Light pink
+          '#FFDFBA', // Light peach
+          '#FFFFBA', // Light yellow
+          '#BAFFC9', // Light green
+          '#BAE1FF', // Light blue
+          '#E1BAFF', // Light purple
+          '#FFBAE1', // Light magenta
+          '#BAFFDF', // Light mint
+          '#FFE1BA', // Light orange
+          '#DFBAFF', // Light lavender
+        ];
+
+        // Assign colors to nodes based on their labels or IDs
+        if (graphData.nodes) {
+          graphData.nodes.forEach((node, index) => {
+            // Use node label or id to determine color
+            const colorIndex = node.label ? 
+              node.label.length % pastelColors.length : 
+              index % pastelColors.length;
+            node.color = {
+              background: pastelColors[colorIndex],
+              border: '#ffffff',
+              highlight: {
+                background: '#ffffff',
+                border: '#000000'
+              }
+            };
+          });
+        }
+
         if (graphRef.current) {
           const options = {
             nodes: {
@@ -25,13 +57,13 @@ const GraphView = ({ caseId }) => {
               size: 18, // Slightly smaller nodes
               font: {
                 size: 12,
-                color: '#ffffff'
+                color: '#000000' // Black text for better contrast on pastel backgrounds
             },
-             borderWidth: 2,
+             borderWidth: 2
           },
           edges: {
             width: 2,
-            color: '#a0aec0', // Softer edge color
+            color: '#ffffff', // White edges for monochrome theme
             arrows: 'to',
             font: {
               color: '#ffffff',
@@ -78,12 +110,12 @@ const GraphView = ({ caseId }) => {
     fetchAndDrawGraph();
   }, [caseId]);
 
-  if (error) return <p className="error">{error}</p>;
+  if (error) return <p className="text-red-400">{error}</p>;
 
   return (
     <div className="graph-container">
-      {isLoading && <p>Loading graph...</p>}
-      <div ref={graphRef} style={{ height: '500px', width: '100%', border: '1px solid #4a5568', borderRadius: '8px', backgroundColor: '#1a202c' }} />
+      {isLoading && <p className="text-gray-400">Loading graph...</p>}
+      <div ref={graphRef} style={{ height: '500px', width: '100%', border: '1px solid #374151', borderRadius: '8px', backgroundColor: '#0f172a' }} />
     </div>
   );
 };

@@ -38,11 +38,11 @@ const DetectiveChat = ({ caseId }) => {
 
   return (
     <div className="mt-4">
-      <h4 className="text-lg font-semibold text-gray-300">Consult AI Detective</h4>
-      <div className="h-64 bg-gray-900 p-2 rounded mt-2 border border-gray-600 overflow-y-auto flex flex-col space-y-2">
+      <h4 className="text-lg font-semibold text-white">Consult AI Detective</h4>
+      <div className="h-64 bg-slate-900/80 backdrop-blur-xl p-2 rounded mt-2 border border-gray-700 overflow-y-auto flex flex-col space-y-2">
         {history.map((entry, index) => (
-          <div key={index} className={`p-2 rounded-lg max-w-xs ${entry.from === 'user' ? 'bg-teal-800 self-end' : 'bg-gray-700 self-start'}`}>
-            <p className="text-sm text-white">{entry.text}</p>
+          <div key={index} className={`p-2 rounded-lg max-w-xs ${entry.from === 'user' ? 'bg-white text-black self-end' : 'bg-slate-800/50 self-start border border-gray-700'}`}>
+            <p className="text-sm">{entry.text}</p>
           </div>
         ))}
          {isLoading && <p className="text-gray-400 self-start">Detective is thinking...</p>}
@@ -50,7 +50,7 @@ const DetectiveChat = ({ caseId }) => {
        <div className="flex mt-2">
         <input
           type="text"
-          className="flex-grow bg-gray-900 text-white p-2 rounded-l border border-gray-600 focus:outline-none focus:ring-2 focus:ring-teal-500"
+          className="flex-grow bg-slate-900/80 backdrop-blur-xl text-white p-2 rounded-l border border-gray-700 focus:outline-none focus:ring-2 focus:ring-white/50 focus:border-white/50"
           placeholder="Ask a question about the case..."
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
@@ -59,12 +59,12 @@ const DetectiveChat = ({ caseId }) => {
         <button
           onClick={handleAsk}
           disabled={isLoading}
-          className="bg-teal-500 hover:bg-teal-400 text-white font-bold py-2 px-4 rounded-r"
+          className="bg-white text-black hover:bg-gray-200 font-bold py-2 px-4 rounded-r transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Ask
         </button>
       </div>
-      {error && <p className="text-red-500 mt-2">{error}</p>}
+      {error && <p className="text-red-400 mt-2">{error}</p>}
     </div>
   );
 };
