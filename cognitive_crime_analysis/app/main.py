@@ -11,8 +11,9 @@ from neo4j import GraphDatabase
 from fastapi.staticfiles import StaticFiles
 from .api import detective 
 from . import models, schemas
-from .database import SessionLocal, engine
+from .database import SessionLocal, engine, get_db 
 from workers.tasks import process_case_file_task, analyze_image_task
+from PyPDF2 import PdfReader
 
 # Load environment variables from .env file
 load_dotenv()
@@ -80,6 +81,18 @@ async def upload_and_process_case(db: Session = Depends(get_db), file: UploadFil
         with open(file_location, "r", encoding='utf-8') as f:
             content = f.read()
         process_case_file_task.delay(db_case.id, content)
+    elif file_extension == 'pdf':
+        # Extract text from PDF and process
+        try:
+            reader = PdfReader(file_location)
+            pdf_text = ""
+            for page in reader.pages:
+                pdf_text += page.extract_text() or ""
+            process_case_file_task.delay(db_case.id, pdf_text)
+        except Exception as e:
+            db_case.status = "failed"
+            db.commit()
+            return {"message": f"PDF extraction failed: {e}", "case_id": db_case.id}
     elif file_extension in ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp']:
         # For images, just send the file path
         analyze_image_task.delay(db_case.id, file_location)
