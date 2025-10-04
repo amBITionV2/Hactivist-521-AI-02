@@ -62,7 +62,7 @@ function App() {
       return;
     }
     
-    const isImageCase = caseItem.filename.match(/\.(jpeg|jpg|png|webp|gif|bmp)$/) != null;
+    const isImageCase = caseItem.filename.match(/\.(jpeg|jpg|png|webp|gif|bmp|pdf)$/) != null;
 
     setSelectedCase(caseItem);
     setError('');
