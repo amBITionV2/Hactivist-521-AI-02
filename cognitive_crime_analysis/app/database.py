@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker
 
 ## --- PostgreSQL Connection --- ##
 ## IMPORTANT: Replace 'YOUR_POSTGRES_PASSWORD' with the password you set during installation.
-SQLALCHEMY_DATABASE_URL = "postgresql://postgres:Rish2#san@localhost:5432/crime_db"
+SQLALCHEMY_DATABASE_URL = "postgresql://postgres:9219@localhost:5432/postgres"
 
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
