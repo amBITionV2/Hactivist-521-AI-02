@@ -146,6 +146,37 @@ def analyze_image_task(case_id: int, file_path: str):
         finally:
             db.close()
 
+        # --- NEW: Extract a structured graph from the analysis text and write it to Neo4j ---
+        if analysis_text:
+            print(f"WORKER: Extracting graph from image analysis text for case {case_id}")
+            graph_data = extract_graph_from_text(analysis_text)
+            entities = graph_data.get("entities", [])
+            relationships = graph_data.get("relationships", [])
+
+            if entities or relationships:
+                driver = get_neo4j_driver()
+                with driver.session() as session:
+                    # Ensure the Case node exists
+                    session.run("MERGE (c:Case {case_id: $case_id})", case_id=case_id)
+
+                    # Create entity nodes and link them to the Case
+                    for entity in entities:
+                        session.run("""
+                            MERGE (c:Case {case_id: $case_id})
+                            MERGE (e:Entity {name: $name, type: $type})
+                            MERGE (e)-[:BELONGS_TO]->(c)
+                        """, case_id=case_id, name=entity['name'], type=entity['type'])
+
+                    # Create relationships between entities
+                    for rel in relationships:
+                        session.run("""
+                            MATCH (source:Entity {name: $source_name})
+                            MATCH (target:Entity {name: $target_name})
+                            MERGE (source)-[:""" + rel['type'] + """]->(target)
+                        """, source_name=rel['source'], target_name=rel['target'])
+                driver.close()
+                print(f"WORKER: Wrote graph from image analysis to Neo4j for case {case_id}.")
+
     except Exception as e:
         print(f"WORKER: An error occurred during image analysis for case {case_id}: {e}")
         # Optionally, update status to 'failed'
