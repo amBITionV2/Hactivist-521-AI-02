@@ -35,8 +35,8 @@ const Dashboard = ({ selectedCase, simulation, onBack, onImageGenerated }) => {
         {/* Column 2: Inference Engine (Now with interactive tools) */}
         <div className="bg-slate-900/80 backdrop-blur-xl p-4 rounded-lg shadow-lg border border-gray-700">
           <h3 className="text-xl font-semibold text-white mb-2">Inference Engine</h3>
-          {/* Only show chat for text-based cases with a graph */}
-          {!isImageCase && <DetectiveChat caseId={selectedCase.id} />}
+          {/* Always show chat now that images also generate graph data */}
+          <DetectiveChat caseId={selectedCase.id} />
           <SuspectGenerator 
             caseId={selectedCase.id} 
             existingImageUrl={selectedCase.suspect_image}
