@@ -121,7 +121,7 @@ You will need to run four separate processes in four different terminals.
 
 You can now access the web application at **http://localhost:5173**.
 
-## 💡 How to Use
+##  How to Use
 
 1.  Use the "Upload New Case File" section to upload a `.txt` file with a crime report or an image file (`.jpg`, `.png`).
 2.  The file will appear in the "Case Dashboard" with a "processing" status.
